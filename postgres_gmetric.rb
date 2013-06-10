@@ -14,49 +14,75 @@
 # http://github.com/elecnix/postgres_gmetric
 require 'optparse'
 
-(puts "FATAL: gmetric not found" ; exit 1) if !File.exists? "/usr/bin/gmetric"
+GMETRIC_PATH = '/usr/local/bin/gmetric'.freeze
+
+(puts "FATAL: gmetric not found" ; exit 1) unless File.exists?(GMETRIC_PATH)
 
 $options = {}
 optparse = OptionParser.new do |opts|
   opts.banner = "Usage: postgres_gmetric.rb [-U <user>] <database>"
 
-  # Define the options, and what they do
+  # Define the options and what they do.
   $options[:verbose] = false
   opts.on( '-v', '--verbose', 'Output collected data' ) do
     $options[:verbose] = true
   end
 
+  opts.on( '-h', '--host HOST', 'Connect to HOST' ) do |host|
+    $options[:host] = host
+  end
+
+  opts.on( '-r', '--remote-host REMOTE_USER@REMOTE_HOST:REMOTE_PORT', 'Run gmetric on REMOTE_HOST:REMOTE_PORT as REMOTE_USER' ) do |remote_host|
+    # TODO Validate this.
+    remote_user = remote_host.split(/@/).first
+    remote_host = remote_host.split(/@/).last.split(/:/)
+    $options[:remote_host] = [remote_user, remote_host].flatten
+  end
+
+  # gmetric --title "pg_wal_files" --name "pg_wal_files" --value 5008 --type float --dmax=240 --group postgres --spoof "50.19.189.202:ec2-50-19-189-202.compute-1.amazonaws.com"
+  opts.on( '-S', '--spoof SPOOF_IP:SPOOF_HOSTNAME', 'Spoof metric host' ) do |spoof|
+    # TODO Validate this.
+    $options[:spoof] = spoof.split(/:/)
+  end
+
+  opts.on( '-p', '--port PORT', 'Connect on PORT' ) do |port|
+    $options[:port] = port
+  end
+
   $options[:user] = ENV['LOGNAME']
+
   opts.on( '-U', '--user USER', 'Connect as USER' ) do |user|
     $options[:user] = user
   end
 
-  opts.on( '-h', '--help', 'Display this screen' ) do
+  opts.on( '-H', '--help', 'Display this screen' ) do
     puts opts
     exit
   end
 end
 optparse.parse!
 
-$options[:database]=ARGV[0]
+$options[:database] = ARGV[0]
 
 (puts "Missing database"; exit 1) if $options[:database].empty?
 (puts "Missing user"; exit 1) if $options[:user].nil?
 
 def query(sql)
-  `psql -U #{$options[:user]} #{$options[:database]} -A -c "#{sql}"`
+  `psql -U #{$options[:user]} #{$options[:host] ? "-h #{$options[:host]}" : nil} #{$options[:port] ? "-p #{$options[:port]}" : nil} #{$options[:database]} -A -c "#{sql}"`
 end
 
 def publish(sql)
-  data=query(sql)
-  lines=data.split("\n")
-  values=lines[1].split('|')
-  col=0
-  lines[0].split('|').each do |colname|
-    v=values[col]
-    puts "#{colname}=#{v}" if $options[:verbose]
-    `gmetric --name "pg_#{colname}" --value #{v} --type float --dmax=240`
-    col=col+1
+  lines = query(sql).split("\n")
+  values = lines[1].split('|')
+  lines[0].split('|').each_with_index do |colname, col|
+    v = values[col]
+    puts "#{colname} = #{v}" if $options[:verbose]
+    gmetric_cmd = %{gmetric --name "pg_#{colname}" --value #{v} --type float --dmax=240 --group postgres #{$options[:spoof] ? "--spoof #{$options[:spoof].join ':'}" : nil}}
+    if $options[:remote_host]
+      `ssh -p #{$options[:remote_host][2]} #{$options[:remote_host][0]}@#{$options[:remote_host][1]} '#{gmetric_cmd}'`
+    else
+      `#{gmetric_cmd}`
+    end
   end
 end
 
@@ -84,4 +110,3 @@ publish "SELECT count(*) as wal_files FROM pg_ls_dir('pg_xlog') WHERE pg_ls_dir 
     publish "SELECT max(CASE WHEN v IS NULL THEN -1 ELSE round(extract(epoch FROM now()-v)) END) as #{auto}#{type}_age FROM (SELECT nspname, relname, #{criteria} AS v FROM pg_class c, pg_namespace n WHERE relkind = 'r' AND n.oid = c.relnamespace AND n.nspname <> 'information_schema' ORDER BY 3) AS foo;"
   end
 end
-
