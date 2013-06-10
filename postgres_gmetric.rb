@@ -87,13 +87,13 @@ def query(sql)
   `#{PSQL_PATH} -U #{$options[:user]} #{$options[:host] ? "-h #{$options[:host]}" : nil} #{$options[:port] ? "-p #{$options[:port]}" : nil} #{$options[:database]} -A -c "#{sql}"`
 end
 
-def publish(sql)
+def publish(sql, group='postgres')
   lines = query(sql).split("\n")
   values = lines[1].split('|')
   lines[0].split('|').each_with_index do |colname, col|
     v = values[col]
     puts "#{colname} = #{v}" if $options[:verbose]
-    gmetric_cmd = %{gmetric --name "pg_#{colname}" --value #{v} --type float --dmax=240 --group postgres #{$options[:spoof] ? "--spoof #{$options[:spoof].join ':'}" : nil}}
+    gmetric_cmd = %{gmetric --name "pg_#{colname}" --value #{v} --type float --dmax=240 --group "#{group}" #{$options[:spoof] ? "--spoof #{$options[:spoof].join ':'}" : nil}}
     if $options[:remote_host]
       `ssh -p #{$options[:remote_host][2]} #{$options[:remote_host][0]}@#{$options[:remote_host][1]} '#{gmetric_cmd}'`
     else
@@ -126,3 +126,9 @@ publish "SELECT count(*) as wal_files FROM pg_ls_dir('pg_xlog') WHERE pg_ls_dir 
     publish "SELECT max(CASE WHEN v IS NULL THEN -1 ELSE round(extract(epoch FROM now()-v)) END) as #{auto}#{type}_age FROM (SELECT nspname, relname, #{criteria} AS v FROM pg_class c, pg_namespace n WHERE relkind = 'r' AND n.oid = c.relnamespace AND n.nspname <> 'information_schema' ORDER BY 3) AS foo;"
   end
 end
+
+# Delayed Job
+publish "SELECT COUNT(*) AS jobs FROM delayed_jobs", 'delayed_job'
+publish "SELECT COUNT(*) AS jobs_older_than_1_minute FROM delayed_jobs WHERE created_at < NOW() - INTERVAL'1 MINUTE'", 'delayed_job'
+publish "SELECT COUNT(*) AS jobs_older_than_1_hour FROM delayed_jobs WHERE created_at < NOW() - INTERVAL'1 HOUR'", 'delayed_job'
+publish "SELECT COUNT(*) AS jobs_older_than_1_day FROM delayed_jobs WHERE created_at < NOW() - INTERVAL'1 DAY'", 'delayed_job'
