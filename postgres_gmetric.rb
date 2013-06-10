@@ -16,7 +16,10 @@ require 'optparse'
 
 GMETRIC_PATH = '/usr/local/bin/gmetric'.freeze
 
-(puts "FATAL: gmetric not found" ; exit 1) unless File.exists?(GMETRIC_PATH)
+unless File.exists?(GMETRIC_PATH)
+  puts "FATAL: gmetric not found"
+  exit 1
+end
 
 $options = {}
 optparse = OptionParser.new do |opts|
@@ -64,8 +67,15 @@ optparse.parse!
 
 $options[:database] = ARGV[0]
 
-(puts "Missing database"; exit 1) if $options[:database].empty?
-(puts "Missing user"; exit 1) if $options[:user].nil?
+if $options[:database].empty?
+  puts "Missing database"
+  exit 1
+end
+
+if $options[:user].nil?
+  puts "Missing user"
+  exit 1
+end
 
 def query(sql)
   `psql -U #{$options[:user]} #{$options[:host] ? "-h #{$options[:host]}" : nil} #{$options[:port] ? "-p #{$options[:port]}" : nil} #{$options[:database]} -A -c "#{sql}"`
