@@ -15,9 +15,15 @@
 require 'optparse'
 
 GMETRIC_PATH = '/usr/local/bin/gmetric'.freeze
+PSQL_PATH = '/usr/local/pgsql/bin/psql'.freeze
 
 unless File.exists?(GMETRIC_PATH)
-  puts "FATAL: gmetric not found"
+  puts "FATAL: gmetric not found at #{GMETRIC_PATH}"
+  exit 1
+end
+
+unless File.exists?(PSQL_PATH)
+  puts "FATAL: psql not found at #{PSQL_PATH}"
   exit 1
 end
 
@@ -78,7 +84,7 @@ if $options[:user].nil?
 end
 
 def query(sql)
-  `psql -U #{$options[:user]} #{$options[:host] ? "-h #{$options[:host]}" : nil} #{$options[:port] ? "-p #{$options[:port]}" : nil} #{$options[:database]} -A -c "#{sql}"`
+  `#{PSQL_PATH} -U #{$options[:user]} #{$options[:host] ? "-h #{$options[:host]}" : nil} #{$options[:port] ? "-p #{$options[:port]}" : nil} #{$options[:database]} -A -c "#{sql}"`
 end
 
 def publish(sql)
